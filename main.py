@@ -19,13 +19,16 @@ from arsenic.services import Geckodriver
 
 
 async def get_image_tuples(img_url_list: list):
-    results = await asyncio.gather(*map(get_image_from_url, img_url_list))
-    return list(results)
+    results = []
+    for url in img_url_list:
+        image = await get_image_from_url_sequential(url)
+        results.append(image)
+    return results
 
 
-async def get_image_from_url(url):
+async def get_image_from_url_sequential(url):
     service = Geckodriver(
-        binary='C:\\Users\\icepe\\Developer_Tools\\Gecko Driver\\geckodriver.exe',
+        binary='C:\\downloadBingCollection\\geckodriver-v0.33.0-win64\\geckodriver.exe',
         log_file=os.devnull
     )
     options = Firefox(**{
@@ -33,11 +36,17 @@ async def get_image_from_url(url):
             "args": ["-headless"]
         }
     })
+    
     async with get_session(service, options) as session:
         await session.get(url)
         logging.info(f"Getting image for URL: {url}")
         img = await session.wait_for_element(20, "//div[@class='imgContainer']/img", SelectorType.xpath)
-        return await img.get_attribute("src"), await img.get_attribute("alt")
+        src = await img.get_attribute("src")
+        alt = await img.get_attribute("alt")
+        
+        logging.info(f"Getting image for URL: {src}")
+        
+        return src, alt
 
 
 async def download_and_zip_images(image_tuples: list):
@@ -92,7 +101,7 @@ async def main():
     image_url_list = [lines[i + 1] for i in range(0, len(lines), 2)]
     logging.info(f"Preparing {len(image_url_list)} URLs for download...")
     image_tuples = await get_image_tuples(image_url_list)
-    await download_and_zip_images(image_tuples)
+
 
     end = time.time()
     elapsed = end - start
