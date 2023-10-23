@@ -40,10 +40,12 @@ async def get_image_from_url_sequential(url):
     async with get_session(service, options) as session:
         await session.get(url)
         logging.info(f"Getting image for URL: {url}")
-        img = await session.wait_for_element(20, "//div[@class='imgContainer']/img", SelectorType.xpath)
-        src = await img.get_attribute("src")
-        alt = await img.get_attribute("alt")
-        
+        try:
+            img = await session.wait_for_element(20, "//div[@class='imgContainer']/img", SelectorType.xpath)
+            src = await img.get_attribute("src")
+            alt = await img.get_attribute("alt")
+        except arsenic.errors.NoSuchElement as e:
+            return null,null
         logging.info(f"Getting image for URL: {src}")
         
         return src, alt
@@ -52,17 +54,10 @@ async def get_image_from_url_sequential(url):
 async def download_and_zip_images(image_tuples: list):
     zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
     async with aiohttp.ClientSession() as session:
-        tasks = [
-            download_and_save_image(session, src, alt, index)
-            for index, (src, alt)
-            in enumerate(image_tuples)
-        ]
-        file_names = await asyncio.gather(*tasks)
-        for file_name in file_names:
+        for index, (src, alt) in enumerate(image_tuples):
+            file_name = await download_and_save_image(session, src, alt, index)
             if file_name is not None:
-                file_name: str
                 zip_file.write(file_name)
-                os.remove(file_name)
     zip_file.close()
 
 
@@ -101,7 +96,7 @@ async def main():
     image_url_list = [lines[i + 1] for i in range(0, len(lines), 2)]
     logging.info(f"Preparing {len(image_url_list)} URLs for download...")
     image_tuples = await get_image_tuples(image_url_list)
-
+    await download_and_zip_images(image_tuples)
 
     end = time.time()
     elapsed = end - start
