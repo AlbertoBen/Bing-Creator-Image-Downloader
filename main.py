@@ -1,6 +1,6 @@
 import logging
 import sys
-
+import arsenic
 import aiofiles
 import asyncio
 from datetime import date
@@ -20,9 +20,10 @@ from arsenic.services import Geckodriver
 
 async def get_image_tuples(img_url_list: list):
     results = []
-    for url in img_url_list:
+    for index, url in enumerate(img_url_list):
         image = await get_image_from_url_sequential(url)
         results.append(image)
+        print(f"Procesando imagen {index + 1} de {len(img_url_list)}")
     return results
 
 
@@ -40,24 +41,45 @@ async def get_image_from_url_sequential(url):
     async with get_session(service, options) as session:
         await session.get(url)
         logging.info(f"Getting image for URL: {url}")
-        try:
-            img = await session.wait_for_element(20, "//div[@class='imgContainer']/img", SelectorType.xpath)
-            src = await img.get_attribute("src")
-            alt = await img.get_attribute("alt")
-        except arsenic.errors.NoSuchElement as e:
-            return null,null
-        logging.info(f"Getting image for URL: {src}")
+        src = alt = None
         
+        while src is None:
+            try:
+                img = await session.wait_for_element(60, "//div[@class='imgContainer']/img", SelectorType.xpath)
+                src = await img.get_attribute("src")
+                alt = await img.get_attribute("alt")
+            except arsenic.errors.ArsenicTimeout as e:
+                logging.error(f"ArsenicTimeout exception. Retrying...")
+        
+        logging.info(f"Getting image for URL: {src}")
         return src, alt
 
 
 async def download_and_zip_images(image_tuples: list):
+    # Establece el número máximo de tareas concurrentes
+    max_concurrent_tasks = 4
+    semaphore = asyncio.Semaphore(max_concurrent_tasks)
+
     zip_file = zipfile.ZipFile(f"bing_images_{date.today()}.zip", "w")
+
     async with aiohttp.ClientSession() as session:
-        for index, (src, alt) in enumerate(image_tuples):
-            file_name = await download_and_save_image(session, src, alt, index)
+        async def download_and_save_image_with_semaphore(src, alt, index):
+            async with semaphore:
+                return await download_and_save_image(session, src, alt, index)
+
+        tasks = [
+            download_and_save_image_with_semaphore(src, alt, index)
+            for index, (src, alt)
+            in enumerate(image_tuples)
+        ]
+
+        file_names = await asyncio.gather(*tasks)
+
+        for file_name in file_names:
             if file_name is not None:
+                file_name: str
                 zip_file.write(file_name)
+
     zip_file.close()
 
 
